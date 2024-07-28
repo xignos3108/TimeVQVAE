@@ -1,6 +1,3 @@
-"""
-reference: https://github.com/nadavbh12/VQ-VAE/blob/master/vq_vae/auto_encoder.py
-"""
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -15,32 +12,27 @@ class ResBlock(nn.Module):
             mid_channels = out_channels
 
         layers = [
-            nn.LeakyReLU(),
-            nn.Conv2d(in_channels, mid_channels,
-                      kernel_size=3, stride=1, padding=1),
-            nn.LeakyReLU(),
-            nn.Conv2d(mid_channels, out_channels,
-                      kernel_size=1, stride=1, padding=0)
+            nn.LeakyReLU(),  # 비선형 활성화 함수
+            nn.Conv2d(in_channels, mid_channels, kernel_size=3, stride=1, padding=1),  # 첫 번째 컨볼루션 레이어
+            nn.LeakyReLU(),  # 비선형 활성화 함수
+            nn.Conv2d(mid_channels, out_channels, kernel_size=1, stride=1, padding=0)  # 두 번째 컨볼루션 레이어
         ]
         if bn:
-            layers.insert(2, nn.BatchNorm2d(out_channels))
+            layers.insert(2, nn.BatchNorm2d(out_channels))  # 배치 정규화 레이어 추가
         self.convs = nn.Sequential(*layers)
 
     def forward(self, x):
-        return x + self.convs(x)
+        return x + self.convs(x)  # 입력과 변환된 출력을 더하여 반환
 
 
 class VQVAEEncBlock(nn.Module):
-    def __init__(self,
-                 in_channels,
-                 out_channels,
-                 ):
+    def __init__(self, in_channels, out_channels):
         super().__init__()
         self.block = nn.Sequential(
             nn.Conv2d(in_channels, out_channels, kernel_size=(3, 4), stride=(1, 2), padding=(1, 1),
-                      padding_mode='replicate'),
-            nn.BatchNorm2d(out_channels),
-            nn.LeakyReLU(inplace=True))
+                      padding_mode='replicate'),  # 컨볼루션 레이어
+            nn.BatchNorm2d(out_channels),  # 배치 정규화 레이어
+            nn.LeakyReLU(inplace=True))  # 비선형 활성화 함수
 
     def forward(self, x):
         out = self.block(x)
@@ -48,15 +40,12 @@ class VQVAEEncBlock(nn.Module):
 
 
 class VQVAEDecBlock(nn.Module):
-    def __init__(self,
-                 in_channels,
-                 out_channels,
-                 ):
+    def __init__(self, in_channels, out_channels):
         super().__init__()
         self.block = nn.Sequential(
-            nn.ConvTranspose2d(in_channels, out_channels, kernel_size=(3, 4), stride=(1, 2), padding=(1, 1)),
-            nn.BatchNorm2d(out_channels),
-            nn.LeakyReLU(inplace=True))
+            nn.ConvTranspose2d(in_channels, out_channels, kernel_size=(3, 4), stride=(1, 2), padding=(1, 1)),  # 컨볼루션 트랜스포즈 레이어
+            nn.BatchNorm2d(out_channels),  # 배치 정규화 레이어
+            nn.LeakyReLU(inplace=True))  # 비선형 활성화 함수
 
     def forward(self, x):
         out = self.block(x)
@@ -65,23 +54,17 @@ class VQVAEDecBlock(nn.Module):
 
 class VQVAEEncoder(nn.Module):
     """
-    following the same implementation from the VQ-VAE paper.
+    VQ-VAE 논문에서 구현된 인코더를 따릅니다.
     """
 
-    def __init__(self,
-                 d: int,
-                 num_channels: int,
-                 downsample_rate: int,
-                 n_resnet_blocks: int,
-                 bn: bool = True,
-                 **kwargs):
+    def __init__(self, d: int, num_channels: int, downsample_rate: int, n_resnet_blocks: int, bn: bool = True, **kwargs):
         """
-        :param d: hidden dimension size
-        :param num_channels: channel size of input
-        :param downsample_rate: should be a factor of 2; e.g., 2, 4, 8, 16, ...
-        :param n_resnet_blocks: number of ResNet blocks
-        :param bn: use of BatchNorm
-        :param kwargs:
+        :param d: 숨겨진 차원 크기
+        :param num_channels: 입력 채널 크기
+        :param downsample_rate: 2의 배수여야 함; 예: 2, 4, 8, 16, ...
+        :param n_resnet_blocks: ResNet 블록 수
+        :param bn: 배치 정규화 사용 여부
+        :param kwargs: 기타 인자
         """
         super().__init__()
         self.encoder = nn.Sequential(
@@ -111,28 +94,23 @@ class VQVAEEncoder(nn.Module):
 
 class VQVAEDecoder(nn.Module):
     """
-    following the same implementation from the VQ-VAE paper.
+    VQ-VAE 논문에서 구현된 디코더를 따릅니다.
     """
 
-    def __init__(self,
-                 d: int,
-                 num_channels: int,
-                 downsample_rate: int,
-                 n_resnet_blocks: int,
-                 **kwargs):
+    def __init__(self, d: int, num_channels: int, downsample_rate: int, n_resnet_blocks: int, **kwargs):
         """
-        :param d: hidden dimension size
-        :param num_channels: channel size of input
-        :param downsample_rate: should be a factor of 2; e.g., 2, 4, 8, 16, ...
-        :param n_resnet_blocks: number of ResNet blocks
-        :param kwargs:
+        :param d: 숨겨진 차원 크기
+        :param num_channels: 입력 채널 크기
+        :param downsample_rate: 2의 배수여야 함; 예: 2, 4, 8, 16, ...
+        :param n_resnet_blocks: ResNet 블록 수
+        :param kwargs: 기타 인자
         """
         super().__init__()
         self.decoder = nn.Sequential(
             *[nn.Sequential(ResBlock(d, d), nn.BatchNorm2d(d)) for _ in range(n_resnet_blocks)],
             *[VQVAEDecBlock(d, d) for _ in range(int(np.log2(downsample_rate)) - 1)],
             nn.ConvTranspose2d(d, num_channels, kernel_size=(3, 4), stride=(1, 2), padding=(1, 1)),
-            nn.ConvTranspose2d(num_channels, num_channels, kernel_size=(3, 4), stride=(1, 2), padding=(1, 1)),  # one more upsampling layer is added not to miss reconstruction details
+            nn.ConvTranspose2d(num_channels, num_channels, kernel_size=(3, 4), stride=(1, 2), padding=(1, 1)),  # 추가 업샘플링 레이어
         )
 
         self.is_upsample_size_updated = False
@@ -140,14 +118,14 @@ class VQVAEDecoder(nn.Module):
 
     def register_upsample_size(self, hw: torch.IntTensor):
         """
-        :param hw: (height H, width W) of input
+        :param hw: (높이 H, 너비 W) 입력 크기
         """
         self.upsample_size = hw
         self.is_upsample_size_updated = True
 
     def forward(self, x):
         """
-        :param x: output from the encoder (B, C, H, W')
+        :param x: 인코더의 출력 (B, C, H, W')
         :return  (B, C, H, W)
         """
         out = self.decoder(x)
@@ -163,7 +141,7 @@ class VQVAEDecoder(nn.Module):
 if __name__ == '__main__':
     import numpy as np
 
-    x = torch.rand(1, 2, 4, 128)  # (batch, channels, height, width)
+    x = torch.rand(1, 2, 4, 128)  # (배치, 채널, 높이, 너비)
 
     encoder = VQVAEEncoder(d=32, num_channels=2, downsample_rate=4, n_resnet_blocks=2)
     decoder = VQVAEDecoder(d=32, num_channels=2, downsample_rate=4, n_resnet_blocks=2)

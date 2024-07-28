@@ -1,10 +1,3 @@
-"""
-`python sample.py`
-
-sample
-    1) unconditional sampling
-    2) class-conditional sampling
-"""
 import os
 from argparse import ArgumentParser
 
@@ -17,21 +10,21 @@ from preprocessing.data_pipeline import build_data_pipeline
 from utils import get_root_dir, load_yaml_param_settings
 
 
-@torch.no_grad()
+@torch.no_grad()  # 이 데코레이터는 이 함수가 추론 모드에서 실행됨을 의미함 (기울기 계산 비활성화)
 def unconditional_sample(maskgit: MaskGIT, n_samples: int, device, class_index=None, batch_size=256, return_representations=False, guidance_scale=1.):
-    n_iters = n_samples // batch_size
+    n_iters = n_samples // batch_size  # 배치 크기에 따른 반복 횟수 계산
     is_residual_batch = False
-    if n_samples % batch_size > 0:
+    if n_samples % batch_size > 0:  # 배치 크기보다 남는 샘플이 있을 경우 처리
         n_iters += 1
         is_residual_batch = True
 
-    x_new_l, x_new_h, x_new = [], [], []
+    x_new_l, x_new_h, x_new = [], [], []  # 생성된 샘플들을 저장할 리스트 초기화
     quantize_new_l, quantize_new_h = [], []
     sample_callback = maskgit.iterative_decoding
     for i in range(n_iters):
         print(f'iter: {i+1}/{n_iters}')
         b = batch_size
-        if (i+1 == n_iters) and is_residual_batch:
+        if (i+1 == n_iters) and is_residual_batch:  # 마지막 배치일 경우 남은 샘플 수만큼 처리
             b = n_samples - ((n_iters-1) * batch_size)
         embed_ind_l, embed_ind_h = sample_callback(num=b, device=device, class_index=class_index, guidance_scale=guidance_scale)
 
@@ -47,7 +40,7 @@ def unconditional_sample(maskgit: MaskGIT, n_samples: int, device, class_index=N
 
         x_new_l.append(x_l)
         x_new_h.append(x_h)
-        x_new.append(x_l + x_h)  # (b c l); b=n_samples, c=1 (univariate)
+        x_new.append(x_l + x_h)  # 생성된 낮은 주파수(LF)와 높은 주파수(HF) 샘플을 더해 최종 샘플 생성
 
     x_new_l = torch.cat(x_new_l)
     x_new_h = torch.cat(x_new_h)
@@ -61,12 +54,12 @@ def unconditional_sample(maskgit: MaskGIT, n_samples: int, device, class_index=N
         return x_new_l, x_new_h, x_new
 
 
-@torch.no_grad()
+@torch.no_grad()  # 이 데코레이터는 이 함수가 추론 모드에서 실행됨을 의미함 (기울기 계산 비활성화)
 def conditional_sample(maskgit: MaskGIT, n_samples: int, device, class_index: int, batch_size=256, return_representations=False, guidance_scale=1.):
     """
-    class_index: starting from 0. If there are two classes, then `class_index` ∈ {0, 1}.
+    class_index: 0부터 시작. 클래스가 두 개일 경우 `class_index`는 {0, 1} 중 하나.
     """
-    maskgit.transformer_l.p_unconditional = 0.
+    maskgit.transformer_l.p_unconditional = 0.  # 조건부 샘플링으로 설정
     maskgit.transformer_h.p_unconditional = 0.
 
     if return_representations:
@@ -79,7 +72,7 @@ def conditional_sample(maskgit: MaskGIT, n_samples: int, device, class_index: in
 
 def plot_generated_samples(x_new_l, x_new_h, x_new, title: str, max_len=20):
     """
-    x_new: (n_samples, c, length); c=1 (univariate)
+    x_new: (n_samples, c, length); c=1 (단변량)
     """
     n_samples = x_new.shape[0]
     if n_samples > max_len:
@@ -87,7 +80,7 @@ def plot_generated_samples(x_new_l, x_new_h, x_new, title: str, max_len=20):
         return None
 
     try:
-        fig, axes = plt.subplots(1*n_samples, 1, figsize=(3.5, 1.7*n_samples))
+        fig, axes = plt.subplots(1*n_samples, 1, figsize=(3.5, 1.7*n_samples))  # 시각화 위해 서브플롯 생성
         alpha = 0.5
         if n_samples > 1:
             for i, ax in enumerate(axes):
@@ -121,20 +114,20 @@ class Sampler(object):
         self.device = device
         self.guidance_scale = self.config['class_guidance']['guidance_scale']
 
-        # build MaskGIT
+        # MaskGIT 생성
         # train_data_loader = build_data_pipeline(self.config, 'train')
         n_classes = len(np.unique(real_train_data_loader.dataset.Y))
         input_length = real_train_data_loader.dataset.X.shape[-1]
         self.maskgit = MaskGIT(input_length, **self.config['MaskGIT'], config=self.config, n_classes=n_classes).to(device)
 
-        # load
+        # 모델 로드
         dataset_name = self.config['dataset']['dataset_name']
         ckpt_fname = os.path.join('saved_models', f'maskgit-{dataset_name}.ckpt')
         saved_state = torch.load(ckpt_fname)
         try:
             self.maskgit.load_state_dict(saved_state)
         except:
-            saved_state_renamed = {}  # need it to load the saved model from the odin server.
+            saved_state_renamed = {}  # 저장된 모델 로드를 위한 상태 딕셔너리 변환
             for k, v in saved_state.items():
                 if '.ff.' in k:
                     saved_state_renamed[k.replace('.ff.', '.net.')] = v
@@ -143,26 +136,26 @@ class Sampler(object):
             saved_state = saved_state_renamed
             self.maskgit.load_state_dict(saved_state)
 
-        # inference mode
+        # 추론 모드로 설정
         self.maskgit.eval()
 
-    @torch.no_grad()
+    @torch.no_grad()  # 이 데코레이터는 이 함수가 추론 모드에서 실행됨을 의미함 (기울기 계산 비활성화)
     def unconditional_sample(self, n_samples: int, class_index=None, batch_size=256, return_representations=False):
         return unconditional_sample(self.maskgit, n_samples, self.device, class_index, batch_size, return_representations, self.guidance_scale)
 
-    @torch.no_grad()
+    @torch.no_grad()  # 이 데코레이터는 이 함수가 추론 모드에서 실행됨을 의미함 (기울기 계산 비활성화)
     def conditional_sample(self, n_samples: int, class_index: int, batch_size=256,
                            return_representations=False):
         """
-        class_index: starting from 0. If there are two classes, then `class_index` ∈ {0, 1}.
+        class_index: 0부터 시작. 클래스가 두 개일 경우 `class_index`는 {0, 1} 중 하나.
         """
         return conditional_sample(self.maskgit, n_samples, self.device, class_index, batch_size, return_representations, self.guidance_scale)
 
     def sample(self, kind: str, n_samples: int, class_index: int, batch_size: int):
         if kind == 'unconditional':
-            x_new_l, x_new_h, x_new = self.unconditional_sample(n_samples, None, batch_size)  # (b c l); b=n_samples, c=1 (univariate)
+            x_new_l, x_new_h, x_new = self.unconditional_sample(n_samples, None, batch_size)  # (b c l); b=n_samples, c=1 (단변량)
         elif kind == 'conditional':
-            x_new_l, x_new_h, x_new = self.conditional_sample(n_samples, class_index, batch_size)  # (b c l); b=n_samples, c=1 (univariate)
+            x_new_l, x_new_h, x_new = self.conditional_sample(n_samples, class_index, batch_size)  # (b c l); b=n_samples, c=1 (단변량)
         else:
             raise ValueError
         return x_new
